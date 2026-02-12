@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UQ WGPA Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>UQ Weighted GPA Calculator</h1>
+    <form id="uploadForm">
+        <label for="file">Upload your UQ unofficial academic transcript (PDF):</label><br><br>
+        <input type="file" id="file" accept=".pdf" required><br><br>
+        <button type="submit">Calculate WGPA</button>
+    </form>
+    <div id="output" class="result"></div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please upload a PDF file.');
+                return;
+            }
+
+            const output = document.getElementById('output');
+            output.innerHTML = 'Processing...';
+
+            try {
+                const courses = await parseTranscript(file);
+                const wgpa = calculateWGPA(courses);
+
+                if (courses.length > 0) {
+                    output.innerHTML = `<h2>Parsed Courses:</h2><ul>${courses.map(course => `
+                        <li>Course Code: ${course.code}, Grade: ${course.grade}, Units: ${course.units}</li>
+                    `).join('')}</ul>
+                    <h2>Your Weighted GPA (WGPA): ${wgpa.toFixed(2)}</h2>`;
+                } else {
+                    output.innerHTML = 'No valid courses found in the transcript.';
+                }
+            } catch (error) {
+                console.error(error);
+                output.innerHTML = 'An error occurred while processing the file.';
+            }
+        });
+
+        async function parseTranscript(file) {
+            const pdf = await pdfjsLib.getDocument(URL.createObjectURL(file)).promise;
+            let text = '';
+
+            for (let i = 0; i < pdf.numPages; i++) {
+                const page = await pdf.getPage(i + 1);
+                const content = await page.getTextContent();
+                text += content.items.map(item => item.str).join('\n') + '\n';
+            }
+
+            const lines = text.split('\n');
+            const courses = [];
+            let isWithinSection = false;
+
+            for (const line of lines) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith('Plan')) {
+                    isWithinSection = true;
+                    continue;
+                }
+                if (trimmedLine.startsWith('TERM GPA')) {
+                    isWithinSection = false;
+                    continue;
+                }
+                if (isWithinSection && trimmedLine) {
+                    try {
+                        const courseCode = `${trimmedLine.slice(0, 4).trim()}${trimmedLine.slice(9, 13).trim()}`;
+                        const units = parseFloat(trimmedLine.slice(54, 58).trim());
+                        const grade = parseFloat(trimmedLine.slice(68, 69).trim());
+
+                        if (!courseCode || isNaN(units) || isNaN(grade)) {
+                            throw new Error('Invalid course information');
+                        }
+
+                        courses.push({ code: courseCode, grade, units });
+                    } catch (error) {
+                        console.log(`Skipping invalid line: ${trimmedLine} - Error: ${error.message}`);
+                    }
+                }
+            }
+
+            return courses;
+        }
+
+        function calculateWGPA(courses) {
+            let numerator = 0;
+            let denominator = 0;
+
+            for (const course of courses) {
+                const firstDigit = parseInt(course.code[4]);
+                let yearLevel;
+
+                if ([1, 2, 3, 4].includes(firstDigit)) {
+                    yearLevel = firstDigit;
+                } else if (firstDigit === 6) {
+                    yearLevel = 4;
+                } else if (firstDigit === 7) {
+                    yearLevel = 5;
+                } else {
+                    console.log(`Invalid course code: ${course.code}. Unable to determine year level.`);
+                    continue;
+                }
+
+                numerator += course.grade * course.units * yearLevel;
+                denominator += course.units * yearLevel;
+            }
+
+            return denominator === 0 ? 0 : numerator / denominator;
+        }
+    </script>
+</body>
+</html>
